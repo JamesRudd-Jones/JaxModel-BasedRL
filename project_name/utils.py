@@ -108,15 +108,8 @@ def update_obs_fn(x, y, env):
 def update_obs_fn_teleport(x, y, env):
     start_obs = x[..., :env.observation_space().shape[0]]
     delta_obs = y[..., -env.observation_space().shape[0]:]
-    output = env.apply_delta_obs( start_obs, delta_obs)
+    output = env.apply_delta_obs(start_obs, delta_obs)
     return output
-
-    shifted_output_og = output - env.observation_space().low
-    obs_range = env.observation_space().high - env.observation_space().low
-    shifted_output = jnp.remainder(shifted_output_og, obs_range)
-    modded_output = shifted_output_og + (env.periodic_dim * shifted_output) - (env.periodic_dim * shifted_output_og)
-    wrapped_output = modded_output + env.observation_space().low
-    return wrapped_output
 
 
 def get_start_obs(env, key):  # TODO some if statement if have some fixed start point
@@ -174,7 +167,7 @@ def make_plots(plot_fn, true_path, data, env, config, agent_config, exe_path_lis
 
     if len(data.x) == 0:
         return
-    # Initialize various axes and figures
+    # Initialise various axes and figures
     ax_all, fig_all = plot_fn(path=None, domain=domain)
     ax_postmean, fig_postmean = plot_fn(path=None, domain=domain)
     ax_samp, fig_samp = plot_fn(path=None, domain=domain)

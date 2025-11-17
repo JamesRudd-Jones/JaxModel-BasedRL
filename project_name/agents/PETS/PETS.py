@@ -9,6 +9,7 @@ from project_name.agents.PETS import get_PETS_config
 from functools import partial
 from project_name.agents.MPC import MPCAgent
 from project_name import dynamics_models
+from jax.experimental import checkify
 
 
 class PETSAgent(MPCAgent):
@@ -56,7 +57,7 @@ class PETSAgent(MPCAgent):
         # given the returns we find the optimal one over the batch for each ensemble
         best_batch_sample_returns_idx = jnp.argmax(sample_returns_USB)
         best_sample_returns_idx_USB = jnp.unravel_index(best_batch_sample_returns_idx, sample_returns_USB.shape)
-        output_SX = jax.tree_util.tree_map(lambda x: x[best_sample_returns_idx_USB[0], ...], output_USX)
+        output_SX = jax.tree.map(lambda x: x[best_sample_returns_idx_USB[0], ...], output_USX)
 
         action_SA = output_SX[1]
 
@@ -68,8 +69,8 @@ class PETSAgent(MPCAgent):
     def make_postmean_func(self):
         def _postmean_fn(x, env, train_state, key):
             key, _key = jrandom.split(key)
-            # ensemble_idx = jax.random.randint(train_state, minval=0, maxval=self.agent_config.NUM_ENSEMBLE, shape=())
-            # ensemble_params = jax.tree_util.tree_map(lambda x: x[ensemble_idx], train_state)
+            # ensemble_idx = jrandom.randint(train_state, minval=0, maxval=self.agent_config.NUM_ENSEMBLE, shape=())
+            # ensemble_params = jax.tree.map(lambda x: x[ensemble_idx], train_state)
             mu, std = self.dynamics_model.predict(x, train_state, _key)
             # return jnp.squeeze(mu, axis=0)  # TODO in original it is obs + mu, check this
             return jnp.squeeze(x[..., :env.obs_dim] + mu, axis=0)
@@ -78,7 +79,7 @@ class PETSAgent(MPCAgent):
     def make_postmean_func2(self):
         def _postmean_fn(x, unused1, train_state, key):
             key, _key = jrandom.split(key)
-            ind_train_state = jax.tree_util.tree_map(lambda x: x[0], train_state)
+            ind_train_state = jax.tree.map(lambda x: x[0], train_state)
             # TODO a dodgy fix for now setting the 0th ensemble member
             mu, std = self.dynamics_model.predict(x, ind_train_state, _key)
             return mu
@@ -170,8 +171,8 @@ class PETSAgent(MPCAgent):
         train_state = self._optimise(train_state, self.make_postmean_func(), exe_path_USOPA, x_test, _key)
         # TODO do I need the whole paths from execute_mpc to optimise or can I just have the usual dataset?
 
-        assert jnp.allclose(curr_obs_O, x_next_OPA[:self.obs_dim]), "For rollout cases, we can only give queries which are from the current state"
-        # TODO can we jax the assertion?
+        checkify.check(jnp.allclose(curr_obs_O, x_next_OPA[:self.obs_dim]),
+                       "For rollout cases, we can only give queries which are from the current state")
 
         return x_next_OPA, exe_path_USOPA, curr_obs_O, train_state, None, key
 

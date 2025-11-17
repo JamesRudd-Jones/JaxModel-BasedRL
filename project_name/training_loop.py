@@ -24,7 +24,6 @@ def run_train(config):
     env = bifurcagym.make(config.ENV_NAME,
                           cont_state=True,
                           cont_action=True,
-                          vmappable=False,
                           normalised=config.NORMALISE_ENV,
                           autoreset=True,
                           metrics=True,

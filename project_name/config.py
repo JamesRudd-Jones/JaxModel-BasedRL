@@ -7,7 +7,7 @@ def get_config():
 
     # config.ENV_NAME = "Cartpole-v0"
     config.ENV_NAME = "Pendulum-v0"
-    config.NORMALISE_ENV = True
+    config.NORMALISE_ENV = False
 
     config.PRETRAIN_HYPERPARAMS = False
     config.PRETRAIN_NUM_DATA = 10#00
@@ -34,8 +34,8 @@ def get_config():
     config.WANDB_ENTITY = "jamesr-j"  # change this to your wandb username
 
     # config.AGENT_TYPE = "MPC"
-    # config.AGENT_TYPE = "PILCO"
-    config.AGENT_TYPE = "TIP"
+    config.AGENT_TYPE = "PILCO"
+    # config.AGENT_TYPE = "TIP"
     # config.AGENT_TYPE = "PETS"
 
     config.AGENT_CONFIG = {}

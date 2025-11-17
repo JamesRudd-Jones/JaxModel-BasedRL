@@ -121,7 +121,6 @@ class MPCAgent(AgentBase):
         min_samples = 2 * self.agent_config.N_ELITES
         samples = jnp.maximum(exp_decay, min_samples)
         samples = jnp.floor(samples).astype(jnp.int_)
-
         return samples.reshape(-1, 1)
 
     @partial(jax.jit, static_argnums=(0, 1))

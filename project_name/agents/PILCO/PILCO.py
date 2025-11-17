@@ -44,7 +44,7 @@ class PILCOAgent(AgentBase):
 
         self.dynamics_model = dynamics_models.MOSVGP(env, config, self.agent_config, key)
 
-        self.obs_dim = len(self.env.observation_space(self.env_params).low)
+        self.obs_dim = len(self.env.observation_space().low)
         self.action_dim = self.env.action_space().shape[0]
 
         self.controller = LinearController(self.obs_dim, self.action_dim, self.env.action_space().high)
@@ -321,7 +321,7 @@ class PILCOAgent(AgentBase):
 
         # randomise controller for restarts
         def randomise_controller(key):
-            controller = LinearController(self.obs_dim, self.action_dim, self.env.action_space(self.env_params).high,
+            controller = LinearController(self.obs_dim, self.action_dim, self.env.action_space().high,
                                           w_init=nn.initializers.normal(stddev=1),
                                           b_init=nn.initializers.normal(stddev=1))
             # TODO a bit dodgy but may work for now
@@ -396,9 +396,9 @@ class PILCOAgent(AgentBase):
             obs_O, env_state, key = env_runner_state
             key, _key = jrandom.split(key)
             action_1A = self.controller.apply(train_state["controller_train_state"].params, obs_O[None, :], jnp.zeros((self.obs_dim, self.obs_dim)))[0]
-            action_A = jnp.squeeze(action_1A, axis=0)
+            action_A = action_1A.squeeze(axis=0)
             key, _key = jrandom.split(key)
-            nobs_O, new_env_state, reward, done, info = self.env.step(_key, env_state, action_A)
+            nobs_O, _, new_env_state, reward, done, info = self.env.step(action_A, env_state, _key)
             return (nobs_O, new_env_state, key), (nobs_O, reward, action_A)
 
         key, _key = jrandom.split(key)
