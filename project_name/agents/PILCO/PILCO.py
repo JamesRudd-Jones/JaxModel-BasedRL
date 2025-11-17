@@ -4,20 +4,18 @@ Based off the following code "https://github.com/mathDR/jax-pilco/blob/main/pilc
 
 
 from project_name.agents.agent_base import AgentBase
-
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 import jax.random as jrandom
-from project_name.utils import update_obs_fn, update_obs_fn_teleport, get_f_mpc, get_f_mpc_teleport
+from project_name.utils import update_obs_fn, update_obs_fn_teleport
 from project_name import dynamics_models
 from project_name.agents.PILCO import LinearController, get_PILCO_config, ExponentialReward
 import optax
 from flax.training.train_state import TrainState
 import flax.linen as nn
-from jaxtyping import Float, install_import_hook
+from jaxtyping import install_import_hook
 from functools import partial
 from project_name import utils
-from flax import nnx
 from jax.experimental import checkify
 from gpjax.parameters import (
     DEFAULT_BIJECTION,
@@ -40,18 +38,16 @@ with install_import_hook("gpjax", "beartype.beartype"):
 
 class PILCOAgent(AgentBase):
 
-    def __init__(self, env, env_params, config, key):
-        super().__init__(env, env_params, config, key)
+    def __init__(self, env, config, key):
+        super().__init__(env, config, key)
         self.agent_config = get_PILCO_config()
 
-        # TODO add some import from folder check thingo
-        self.dynamics_model = dynamics_models.MOSVGP(env, env_params, config, self.agent_config, key)
+        self.dynamics_model = dynamics_models.MOSVGP(env, config, self.agent_config, key)
 
         self.obs_dim = len(self.env.observation_space(self.env_params).low)
-        self.action_dim = self.env.action_space(env_params).shape[0]
-        # TODO match this to the other rl main stuff
+        self.action_dim = self.env.action_space().shape[0]
 
-        self.controller = LinearController(self.obs_dim, self.action_dim, self.env.action_space(env_params).high)
+        self.controller = LinearController(self.obs_dim, self.action_dim, self.env.action_space().high)
         self.reward = ExponentialReward(self.obs_dim,
                                         w_init=lambda x, y: jnp.reshape(jnp.diag(jnp.array([2.0, 0.3])), (self.obs_dim, self.obs_dim)),
                                         t_init=lambda x, y: jnp.reshape(jnp.array([0.0, 0.0]), (1, self.obs_dim)))
@@ -62,7 +58,7 @@ class PILCOAgent(AgentBase):
         # self.tx = optax.chain(optax.clip_by_global_norm(self.agent_config.MAX_GRAD_NORM),
         #                       optax.adam(self.agent_config.POLICY_LR))
 
-        if config.TELEPORT:
+        if hasattr(env, "periodic_dim"):
             self._update_fn = update_obs_fn_teleport
         else:
             self._update_fn = update_obs_fn
@@ -339,9 +335,9 @@ class PILCOAgent(AgentBase):
         restart_key = jrandom.split(_key, restarts)
         randomised_controller = jax.vmap(randomise_controller)(restart_key)
         # join randomised controller with our current known value
-        controller_states = jax.tree_util.tree_map(lambda x, y: jnp.concatenate((jnp.expand_dims(x, axis=0), y)),
-                                                       train_state["controller_train_state"],
-                                                       randomised_controller)
+        controller_states = jax.tree.map(lambda x, y: jnp.concatenate((jnp.expand_dims(x, axis=0), y)),
+                                         train_state["controller_train_state"],
+                                         randomised_controller)
 
         # vmap over some randomised params for the controller and run the above
         def randomise_restart(randomised_controller_state, overall_train_state):
@@ -353,11 +349,11 @@ class PILCOAgent(AgentBase):
 
         # perform optermisation vmapped over all possible controller states
         randomised_controller_best_states, all_rewards = jax.vmap(randomise_restart, in_axes=(0, None))(controller_states,
-                                                                                                          train_state)
+                                                                                                        train_state)
         # sometimes training returns nans, unsure why but the below prevents
         best_reward_idx = jnp.nanargmax(all_rewards)
         # extract the best controller_state and use it for next batch of steps
-        new_controller_state = jax.tree_util.tree_map(lambda x: x[best_reward_idx], randomised_controller_best_states)
+        new_controller_state = jax.tree.map(lambda x: x[best_reward_idx], randomised_controller_best_states)
         train_state["controller_train_state"] = new_controller_state
 
         return train_state
@@ -402,12 +398,12 @@ class PILCOAgent(AgentBase):
             action_1A = self.controller.apply(train_state["controller_train_state"].params, obs_O[None, :], jnp.zeros((self.obs_dim, self.obs_dim)))[0]
             action_A = jnp.squeeze(action_1A, axis=0)
             key, _key = jrandom.split(key)
-            nobs_O, new_env_state, reward, done, info = self.env.step(_key, env_state, action_A, self.env_params)
+            nobs_O, new_env_state, reward, done, info = self.env.step(_key, env_state, action_A)
             return (nobs_O, new_env_state, key), (nobs_O, reward, action_A)
 
         key, _key = jrandom.split(key)
         _, (nobs_SO, real_rewards_S, real_actions_SA) = jax.lax.scan(_env_step, (start_obs, start_env_state, _key),
-                                                                     None, self.env_params.horizon)
+                                                                     None, self.env.horizon)
 
         real_obs_SP1O = jnp.concatenate((jnp.expand_dims(start_obs, axis=0), nobs_SO))
         real_returns_1 = self._compute_returns(jnp.expand_dims(real_rewards_S, axis=0))

@@ -11,8 +11,8 @@ class DynamicsModelBase:  # TODO sort this oot
         self.env = env
         self.agent_config = agent_config
 
-        self.obs_dim = env.obs_dim
-        self.action_dim = self.env.action_space().shape[0]
+        self.obs_dim = env.observation_space().shape[0]
+        self.action_dim = env.action_space().shape[0]
         self.input_dim = self.obs_dim + self.action_dim
         if config.LEARN_REWARD:
             self.output_dim = self.obs_dim + 1  # TODO is it just one?

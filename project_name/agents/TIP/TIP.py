@@ -1,12 +1,11 @@
-import jax.numpy as jnp
-from project_name.agents.TIP import get_TIP_config
 import jax
-from functools import partial
+import jax.numpy as jnp
 import jax.random as jrandom
+from project_name.agents.TIP import get_TIP_config
+from functools import partial
 from project_name.agents.MPC import MPCAgent
 from project_name import dynamics_models
-from jaxtyping import Float, install_import_hook
-from project_name import utils
+from jaxtyping import install_import_hook
 from flax import nnx
 from jax.experimental import checkify
 
@@ -16,14 +15,14 @@ with install_import_hook("gpjax", "beartype.beartype"):
 
 class TIPAgent(MPCAgent):
 
-    def __init__(self, env, env_params, config, key):
-        super().__init__(env, env_params, config, key)
+    def __init__(self, env, config, key):
+        super().__init__(env, config, key)
         self.agent_config = get_TIP_config()
 
-        self.dynamics_model = dynamics_models.MOGP(env, env_params, config, self.agent_config, key)
+        self.dynamics_model = dynamics_models.MOGP(env, config, self.agent_config, key)
 
     def make_postmean_func_const_key(self):
-        def _postmean_fn(x, unused1, unused2, train_state, train_data, key):
+        def _postmean_fn(x, unused1, train_state, train_data, key):
             mu = self.dynamics_model.get_post_mu_cov_samples(x, train_state, train_data, key, full_cov=False)
             return mu.squeeze(axis=0)
         return _postmean_fn
@@ -103,8 +102,8 @@ class TIPAgent(MPCAgent):
             obs_O, key = runner_state
             obsacts_OPA = jnp.concatenate((obs_O, actions_A), axis=-1)
             key, _key = jrandom.split(key)
-            data_y_O = f(jnp.expand_dims(obsacts_OPA, axis=0), None, None, train_state, train_data, _key)
-            nobs_O = self._update_fn(obsacts_OPA, data_y_O, self.env, self.env_params)
+            data_y_O = f(jnp.expand_dims(obsacts_OPA, axis=0), None, train_state, train_data, _key)
+            nobs_O = self._update_fn(obsacts_OPA, data_y_O, self.env)
             return (nobs_O, key), obsacts_OPA
 
         _, x_list_SOPA = jax.lax.scan(jax.jit(_run_planning_horizon2), (obs_O, key), samples_S1)
@@ -115,8 +114,6 @@ class TIPAgent(MPCAgent):
 
         # get posterior covariance for all exe_paths, so this be a vmap probably
         def _get_sample_cov(x_list_SOPA, exe_path_SOPA, params):
-            # params["train_data_x"] = jnp.concatenate((params["train_data_x"], exe_path_SOPA["exe_path_x"]))
-            # params["train_data_y"] = jnp.concatenate((params["train_data_y"], exe_path_SOPA["exe_path_y"]))
             new_dataset = train_data + gpjax.Dataset(exe_path_SOPA["exe_path_x"], exe_path_SOPA["exe_path_y"])
             return self.dynamics_model.get_post_mu_fullcov(x_list_SOPA, params, new_dataset, full_cov=True)
         # TODO this is fairly slow as it feeds in a large amount of gp data to get the sample cov
@@ -181,13 +178,12 @@ class TIPAgent(MPCAgent):
             batch_train_state,
             (train_data.X, train_data.y),
             batch_key,
-            self.env_params.horizon,
+            self.env.horizon,
             self.agent_config.ACTIONS_PER_PLAN)
-        # TODO can't seem to vmap dataset
 
         # add in some test values
         key, _key = jrandom.split(key)
-        x_test = jnp.concatenate((curr_obs, self.env.action_space(self.env_params).sample(_key)))
+        x_test = jnp.concatenate((curr_obs, self.env.action_space().sample(_key)))
 
         # now optimise the dynamics model with the x_test
         # take the exe_path_list that has been found with different posterior samples using iCEM

@@ -5,12 +5,9 @@ def get_config():
     config = config_dict.ConfigDict()
     config.SEED = 42
 
-    # config.ENV_NAME = "pilcocartpole-v0"
-    config.ENV_NAME = "bacpendulum-v0"
+    # config.ENV_NAME = "Cartpole-v0"
+    config.ENV_NAME = "Pendulum-v0"
     config.NORMALISE_ENV = True
-    config.GENERATIVE_ENV = True
-    config.TELEPORT = True  # aka teleporting in the original thing, good for periodic envs
-    # TODO can we make teleport part of the env so it correctly works for periodic boundaries, e.g. Pendulum
 
     config.PRETRAIN_HYPERPARAMS = False
     config.PRETRAIN_NUM_DATA = 10#00
@@ -36,9 +33,9 @@ def get_config():
 
     config.WANDB_ENTITY = "jamesr-j"  # change this to your wandb username
 
-    config.AGENT_TYPE = "MPC"
+    # config.AGENT_TYPE = "MPC"
     # config.AGENT_TYPE = "PILCO"
-    # config.AGENT_TYPE = "TIP"
+    config.AGENT_TYPE = "TIP"
     # config.AGENT_TYPE = "PETS"
 
     config.AGENT_CONFIG = {}
@@ -48,7 +45,7 @@ def get_config():
 
 """
 Suffixes
-B - Batch size, probably when using replay buffer
+B - Batch size
 E - Number of Episodes
 L - Episode Length/NUM_INNER_STEPS/Actions Per Plan
 S - Seq length if using trajectory buffer/Planning Horizon

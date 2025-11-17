@@ -2,26 +2,11 @@
 PETS implementation based off "https://github.com/kchua/mbrl-jax/tree/master"
 """
 
-from argparse import Namespace
-import numpy as np
-from math import ceil
-import logging
-
-from project_name.agents.agent_base import AgentBase
-
-import jax.numpy as jnp
-from project_name.agents.PETS import get_PETS_config
 import jax
-from functools import partial
-# import colorednoise
+import jax.numpy as jnp
 import jax.random as jrandom
-from gymnax.environments import environment
-from flax import struct
-from project_name.utils import MPCTransition, MPCTransitionXY, MPCTransitionXYR
-import gymnax
-from project_name.config import get_config
-from typing import Union, Tuple
-from project_name.utils import update_obs_fn, update_obs_fn_teleport, get_f_mpc, get_f_mpc_teleport
+from project_name.agents.PETS import get_PETS_config
+from functools import partial
 from project_name.agents.MPC import MPCAgent
 from project_name import dynamics_models
 
@@ -31,11 +16,11 @@ class PETSAgent(MPCAgent):
     Just uses ensemble of NN as a dynamics model and runs out an MPC plan using (i)CEM
     """
 
-    def __init__(self, env, env_params, config, key):
-        super().__init__(env, env_params, config, key)
+    def __init__(self, env, config, key):
+        super().__init__(env, config, key)
         self.agent_config = get_PETS_config()
 
-        self.dynamics_model = dynamics_models.NeuralNetDynamicsModel(env, env_params, config, self.agent_config, key)
+        self.dynamics_model = dynamics_models.NeuralNetDynamicsModel(env, config, self.agent_config, key)
 
     def create_train_state(self, init_data, key):
         return self.dynamics_model.create_train_state(init_data, key)
@@ -81,7 +66,7 @@ class PETSAgent(MPCAgent):
         return action_SA, exe_path_USX, output_SX
 
     def make_postmean_func(self):
-        def _postmean_fn(x, env, unused2, train_state, key):
+        def _postmean_fn(x, env, train_state, key):
             key, _key = jrandom.split(key)
             # ensemble_idx = jax.random.randint(train_state, minval=0, maxval=self.agent_config.NUM_ENSEMBLE, shape=())
             # ensemble_params = jax.tree_util.tree_map(lambda x: x[ensemble_idx], train_state)
@@ -91,7 +76,7 @@ class PETSAgent(MPCAgent):
         return _postmean_fn
 
     def make_postmean_func2(self):
-        def _postmean_fn(x, unused1, unused2, train_state, key):
+        def _postmean_fn(x, unused1, train_state, key):
             key, _key = jrandom.split(key)
             ind_train_state = jax.tree_util.tree_map(lambda x: x[0], train_state)
             # TODO a dodgy fix for now setting the 0th ensemble member
@@ -178,7 +163,7 @@ class PETSAgent(MPCAgent):
 
         # add in some test values
         key, _key = jrandom.split(key)
-        x_test = jnp.concatenate((curr_obs_O, self.env.action_space(self.env_params).sample(_key)))
+        x_test = jnp.concatenate((curr_obs_O, self.env.action_space().sample(_key)))
         # TODO do we need to use a test set or something adjacent?
 
         key, _key = jrandom.split(key)

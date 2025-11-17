@@ -8,21 +8,13 @@ import logging
 
 jax.config.update("jax_enable_x64", True)
 
-# TODO what is env.params, do we need it or can we do soemthing else than leave in the env?
-
 # TODO focus on getting PETS to work
 
 # TODO add in the learnt reward function as well
 
-# TODO if we want to pretend we have no existing data how would this work? This may be a struggle with Jax so need to
-# TODO figure the best approach
+# TODO if we want to pretend we have no existing data how would this work? This may be a struggle with Jax so need to figure the best approach
 
 # TODO sort out all the right shapes, so we don't have to arbitrarily squeeze and add dims in MPC, also can we avoid postmean_func2
-
-# TODO replace the updating dataset with flashbax maybe? would this be more efficient or less?
-
-# env, env_params = gymnax.make("MountainCarContinuous-v0")
-# TODO make these envs in gymnax style for continuous control, can we add a wrapper so we don't need to add generative env to them all?
 
 
 """

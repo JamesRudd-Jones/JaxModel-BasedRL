@@ -1,8 +1,10 @@
+import jax.numpy as jnp
 from matplotlib import pyplot as plt
 from math import ceil
 import numpy as np
 from copy import deepcopy
 import matplotlib.patches as patches
+from collections import defaultdict
 
 
 def plot_generic(path, ax=None, fig=None, domain=None, path_str="samp", env=None):
@@ -54,17 +56,12 @@ def plot_generic(path, ax=None, fig=None, domain=None, path_str="samp", env=None
 
 
 def plot_pendulum(path, ax=None, fig=None, domain=None, path_str="samp", env=None):
-    """Plot a path through an assumed two-dimensional state space."""
     assert path_str in ["samp", "true", "postmean"]
     if ax is None:
         assert domain is not None
         fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        ax.set(
-            xlim=(domain[0][0], domain[0][1]),
-            ylim=(domain[1][0], domain[1][1]),
-            xlabel="$\\theta$",
-            ylabel="$\\dot{\\theta}$",
-        )
+        ax.set(xlim=(domain[0][0], domain[0][1]), ylim=(domain[1][0], domain[1][1]),
+               xlabel="$\\theta$", ylabel="$\\dot{\\theta}$")
         if path is None:
             return ax, fig
     x_plot = [xi[0] for xi in path.x]
@@ -76,14 +73,10 @@ def plot_pendulum(path, ax=None, fig=None, domain=None, path_str="samp", env=Non
     elif path_str == "postmean":
         ax.plot(x_plot, y_plot, "r--", linewidth=3)
         ax.plot(x_plot, y_plot, "*", color="r", markersize=5)
-    # elif path_str == "samp":
-    # ax.plot(x_plot, y_plot, 'k--', linewidth=1, alpha=0.3)
-    # ax.plot(x_plot, y_plot, 'o', alpha=0.3)
     elif path_str == "samp":
         lines2d = ax.plot(x_plot, y_plot, "--", linewidth=1, alpha=0.3)
         ax.plot(x_plot, y_plot, "o", color=lines2d[0].get_color(), alpha=0.3)
 
-    # Also plot small indicator of start-of-path
     ax.plot(x_plot[0], y_plot[0], "<", markersize=2, color="k", alpha=0.5)
 
     return ax, fig
@@ -129,10 +122,8 @@ def plot_pilco_cartpole(path, ax=None, fig=None, domain=None, path_str="samp", e
     if ax is None:
         assert domain is not None
         fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        ax.set(xlim=(-3, 3),
-               ylim=(-0.7, 0.7),
-               xlabel="$x$",
-               ylabel="$y$")
+        ax.set(xlim=(-3, 3), ylim=(-0.7, 0.7),
+               xlabel="$x$", ylabel="$y$")
         if path is None:
             return ax, fig
 
@@ -164,45 +155,14 @@ def plot_pilco_cartpole(path, ax=None, fig=None, domain=None, path_str="samp", e
     return ax, fig
 
 
-def plot_acrobot(path, ax=None, domain=None, path_str="samp", env=None):
-    """Plot a path through an assumed two-dimensional state space."""
-    assert path_str in ["samp", "true", "postmean"]
-    if ax is None:
-        assert domain is not None
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        ax.set(
-            xlim=(domain[0][0], domain[0][1]),
-            ylim=(domain[1][0], domain[1][1]),
-            xlabel="$\\theta_1$",
-            ylabel="$\\theta_2$",
-        )
-
-    x_plot = [xi[0] for xi in path.x]
-    y_plot = [xi[1] for xi in path.x]
-
-    if path_str == "true":
-        ax.plot(x_plot, y_plot, "k--", linewidth=3)
-        ax.plot(x_plot, y_plot, "*", color="k", markersize=5)
-    elif path_str == "postmean":
-        ax.plot(x_plot, y_plot, "r--", linewidth=3)
-        ax.plot(x_plot, y_plot, "*", color="r", markersize=5)
-    elif path_str == "samp":
-        ax.plot(x_plot, y_plot, "k--", linewidth=1, alpha=0.3)
-        ax.plot(x_plot, y_plot, "o", alpha=0.3)
-    return ax
-
-
 def noop(*args, ax=None, fig=None, **kwargs):
-    return (
-        ax,
-        fig,
-    )
+    return ax, fig
 
 
-def make_plot_obs(data, env, env_params, normalize_obs):
-    obs_dim = env.observation_space(env_params).low.size
+def make_plot_obs(data, env, normalise_obs):
+    obs_dim = env.observation_space().low.size
     x_data = np.array(data)
-    if normalize_obs:
+    if normalise_obs:
         norm_obs = x_data[..., :obs_dim]
         action = x_data[..., obs_dim:]
         unnorm_obs = env.unnormalise_obs(norm_obs)
@@ -210,3 +170,11 @@ def make_plot_obs(data, env, env_params, normalize_obs):
         unnorm_action = env.unnormalise_action(action)
         x_data = np.concatenate([unnorm_obs, unnorm_action], axis=-1)
     return x_data
+
+
+_plotters = {
+    "Pendulum-v0": plot_pendulum,
+    "Cartpole-v0": plot_pilco_cartpole,
+}
+plotters = defaultdict(lambda: plot_generic)
+plotters.update(_plotters)

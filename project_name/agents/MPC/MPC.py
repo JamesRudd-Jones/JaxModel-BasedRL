@@ -11,9 +11,9 @@ from project_name.agents.MPC import get_MPC_config
 from functools import partial
 from project_name.utils import MPCTransition, MPCTransitionXY, MPCTransitionXYR
 from project_name.config import get_config
-from project_name.utils import update_obs_fn, update_obs_fn_teleport, get_f_mpc, get_f_mpc_teleport
+from project_name.utils import update_obs_fn, update_obs_fn_teleport
 from project_name import dynamics_models
-from jaxtyping import Float, install_import_hook
+from jaxtyping import install_import_hook
 from project_name import utils
 from jax.experimental import checkify
 
@@ -42,7 +42,7 @@ class MPCAgent(AgentBase):
 
         self.n_keep = ceil(self.agent_config.XI * self.agent_config.N_ELITES)
 
-        if config.TELEPORT:
+        if hasattr(env, "periodic_dim"):
             self._update_fn = update_obs_fn_teleport
         else:
             self._update_fn = update_obs_fn
@@ -54,7 +54,7 @@ class MPCAgent(AgentBase):
         return self.dynamics_model.pretrain_params(init_data, pretrain_data, key)
 
     @partial(jax.jit, static_argnums=(0, 3, 4, 5))
-    def powerlaw_psd_gaussian_jax(self, key, exponent, base_nsamps, action_dim, time_horizon, fmin=0.0) -> jnp.ndarray:
+    def powerlaw_psd_gaussian_jax(self, key, exponent, base_nsamps, action_dim, time_horizon, fmin=0.0):
         """
         JAX implementation of Gaussian (1/f)**beta noise.
 
@@ -161,11 +161,12 @@ class MPCAgent(AgentBase):
                         key, _key = jrandom.split(key)
                         data_y_O = f(jnp.expand_dims(obsacts_OPA, axis=0), self.env, train_state, train_data, _key)
                         nobs_O = self._update_fn(obsacts_OPA, data_y_O, self.env)
-                        reward = self.env.reward_function(obsacts_OPA, nobs_O)
+                        reward = self.env.reward_function(actions_A, self.env.get_state(obs_O), self.env.get_state(nobs_O))
                         return (nobs_O, key), MPCTransitionXY(obs=nobs_O,
                                                               action=actions_A,
                                                               reward=jnp.expand_dims(reward, axis=-1),
-                                                              x=obsacts_OPA, y=data_y_O)
+                                                              x=obsacts_OPA,
+                                                              y=data_y_O)
 
                     return jax.lax.scan(_run_single_timestep, (init_obs_O, key), init_samples_S1,
                                         self.agent_config.PLANNING_HORIZON)
@@ -287,15 +288,15 @@ class MPCAgent(AgentBase):
         return action, exe_path, output
 
     def make_postmean_func(self):
-        @partial(jax.jit, static_argnums=(1, 2))
-        def _postmean_fn(x, unused1, unused2, train_state, train_data, key):
+        @partial(jax.jit, static_argnums=(1,))
+        def _postmean_fn(x, unused1, train_state, train_data, key):
             mu, std = self.dynamics_model.get_post_mu_cov(x, train_state, train_data, full_cov=False)
             return mu.squeeze(axis=0)
         return _postmean_fn
 
     def make_postmean_func2(self):
-        @partial(jax.jit, static_argnums=(1, 2))
-        def _postmean_fn(x, unused1, unused2, train_state, train_data, key):
+        @partial(jax.jit, static_argnums=(1,))
+        def _postmean_fn(x, unused1, train_state, train_data, key):
             mu, std = self.dynamics_model.get_post_mu_cov(x, train_state, train_data, full_cov=False)
             return mu
         return _postmean_fn
@@ -308,9 +309,6 @@ class MPCAgent(AgentBase):
         x_next_OPA = jnp.concatenate((curr_obs_O, jnp.squeeze(action_1A, axis=0)), axis=-1)
 
         exe_path = jax.tree.map(lambda x: jnp.expand_dims(x, axis=0), exe_path)
-
-        # assert jnp.allclose(curr_obs_O, x_next_OPA[:self.obs_dim]), "For rollout cases, we can only give queries which are from the current state"
-        # TODO can we jax the assertion?
 
         checkify.check(jnp.allclose(curr_obs_O, x_next_OPA[:self.obs_dim]), "For rollout cases, we can only give queries which are from the current state")
 
@@ -346,7 +344,7 @@ class MPCAgent(AgentBase):
                                                 _key, horizon=1, actions_per_plan=1)
             action_A = action_1A.squeeze(axis=0)
             key, _key = jrandom.split(key)
-            nobs_O, new_env_state, reward, done, info = self.env.step(_key, env_state, action_A)
+            nobs_O, _, new_env_state, reward, done, info = self.env.step(action_A, env_state, _key)
             return (nobs_O, new_env_state, key), (nobs_O, reward, action_A)
 
         key, _key = jrandom.split(key)
@@ -357,8 +355,7 @@ class MPCAgent(AgentBase):
         real_path_x_SOPA = jnp.concatenate((real_obs_SP1O[:-1], real_actions_SA), axis=-1)
         real_path_y_SO = real_obs_SP1O[1:] - real_obs_SP1O[:-1]
         key, _key = jrandom.split(key)
-        real_path_y_hat_SO = self.make_postmean_func2()(real_path_x_SOPA, None, None, train_state,
-                                                         train_data, _key)
+        real_path_y_hat_SO = self.make_postmean_func2()(real_path_x_SOPA, None, train_state, train_data, _key)
         # TODO unsure how to fix the above
         mse = 0.5 * jnp.mean(jnp.sum(jnp.square(real_path_y_SO - real_path_y_hat_SO), axis=1))
 

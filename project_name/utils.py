@@ -1,39 +1,16 @@
+import jax
+import jax.numpy as jnp
+import jax.random as jrandom
 import sys
 import os
 import importlib
-import jax.numpy as jnp
-from typing import NamedTuple, Any, Mapping
-import chex
-import jax
-from flax.training.train_state import TrainState
-import flax
-from project_name.viz import make_plot_obs, scatter, plot
+from typing import NamedTuple
+from project_name.utils_plots import make_plot_obs, scatter, plot
 import neatplot
-import jax.random as jrandom
 from functools import partial
 import logging
-from gymnax.environments import environment
-from flax import struct
 import matplotlib.pyplot as plt
-
-
-class MemoryState(NamedTuple):
-    hstate: jnp.ndarray
-    extras: Mapping[str, jnp.ndarray]
-
-
-class TrainStateExt(TrainState):
-    target_params: flax.core.FrozenDict
-
-
-class Transition(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    obs: jnp.ndarray
-    mem_state: MemoryState
-    # env_state: Any  # TODO added this but can change
-    info: jnp.ndarray
+import gpjax
 
 
 class MPCTransition(NamedTuple):
@@ -64,25 +41,6 @@ class RealPath(NamedTuple):
     x: jnp.ndarray
     y: jnp.ndarray
     y_hat: jnp.ndarray
-
-class TransitionFlashbax(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    obs: jnp.ndarray
-
-class EvalTransition(NamedTuple):
-    global_done: jnp.ndarray
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
-    distribution: Any
-    spec_key: chex.PRNGKey
-    env_state: jnp.ndarray
 
 
 def flip_and_switch(tracer):
@@ -122,40 +80,42 @@ def import_class_from_folder(folder_name):
         return None
 
 
-@partial(jax.jit, static_argnums=(1, 2))
-def get_f_mpc(x_OPA, env, env_params, train_state, train_data, key):
-    obs_1O = x_OPA[..., :env.obs_dim]
-    action_1A = x_OPA[..., env.obs_dim:]
-    obs_O = jnp.squeeze(obs_1O, axis=0)
-    nobs_O, _, _, _, info = env.generative_step(key, obs_O, jnp.squeeze(action_1A, axis=0), env_params)
-    return nobs_O - obs_O
+def get_space_stats(env):
+    low = jnp.concatenate([env.observation_space().low, jnp.expand_dims(jnp.array(env.action_space().low), axis=0)])
+    high = jnp.concatenate([env.observation_space().high, jnp.expand_dims(jnp.array(env.action_space().high), axis=0)])
+    domain = [elt for elt in zip(low, high)]
+    return low, high, domain
 
-@partial(jax.jit, static_argnums=(1, 2))
-def get_f_mpc_teleport(x_OPA, env, env_params, train_state, train_data, key):
-    obs_1O = x_OPA[..., :env.obs_dim]
-    action_1A = x_OPA[..., env.obs_dim:]
-    obs_O = jnp.squeeze(obs_1O, axis=0)
-    _, _, _, _, info = env.generative_step(key, obs_O, jnp.squeeze(action_1A, axis=0), env_params)
-    return info["delta_obs"]
 
-@partial(jax.jit, static_argnums=(2, 3))
-def update_obs_fn(x, y, env, env_params):
-    start_obs = x[..., :env.obs_dim]
-    delta_obs = y[..., -env.obs_dim:]  # TODO check this okay if add stuff to the y, potentially reward
+@partial(jax.jit, static_argnums=(1,))
+def get_f_generative(x_OPA, env, train_state, train_data, key):
+    obs_1O = x_OPA[..., :env.observation_space().shape[0]]
+    action_1A = x_OPA[..., env.observation_space().shape[0]:]
+    _, delta_obs_0, _, _, _, info = env.generative_step(action_1A.squeeze(axis=0), obs_1O.squeeze(axis=0), key)
+    # TODO is the input always one so we can remove the squeeze and just index the first entry?
+    return delta_obs_0
+
+
+@partial(jax.jit, static_argnums=(2,))
+def update_obs_fn(x, y, env):
+    start_obs = x[..., :env.observation_space().shape[0]]
+    delta_obs = y[..., -env.observation_space().shape[0]:]  # TODO check this okay if add stuff to the y, potentially reward
     output = start_obs + delta_obs
     return output
 
-@partial(jax.jit, static_argnums=(2, 3))
-def update_obs_fn_teleport(x, y, env, env_params):
-    start_obs = x[..., :env.obs_dim]
-    delta_obs = y[..., -env.obs_dim:]
-    output = start_obs + delta_obs
 
-    shifted_output_og = output - env.observation_space(env_params).low
-    obs_range = env.observation_space(env_params).high - env.observation_space(env_params).low
+@partial(jax.jit, static_argnums=(2,))
+def update_obs_fn_teleport(x, y, env):
+    start_obs = x[..., :env.observation_space().shape[0]]
+    delta_obs = y[..., -env.observation_space().shape[0]:]
+    output = env.apply_delta_obs( start_obs, delta_obs)
+    return output
+
+    shifted_output_og = output - env.observation_space().low
+    obs_range = env.observation_space().high - env.observation_space().low
     shifted_output = jnp.remainder(shifted_output_og, obs_range)
     modded_output = shifted_output_og + (env.periodic_dim * shifted_output) - (env.periodic_dim * shifted_output_og)
-    wrapped_output = modded_output + env.observation_space(env_params).low
+    wrapped_output = modded_output + env.observation_space().low
     return wrapped_output
 
 
@@ -166,7 +126,9 @@ def get_start_obs(env, key):  # TODO some if statement if have some fixed start 
     return obs, env_state
 
 
-def get_initial_data(config, f, plot_fn, low, high, domain, env, n, key, train=False):
+def get_initial_data(config, f, plot_fn, env, n, key, train=False):
+    low, high, domain = get_space_stats(env)
+
     def unif_random_sample_domain(low, high, key, n=1):
         unscaled_random_sample = jrandom.uniform(key, shape=(n, low.shape[0]))
         scaled_random_sample = low + (high - low) * unscaled_random_sample
@@ -174,13 +136,10 @@ def get_initial_data(config, f, plot_fn, low, high, domain, env, n, key, train=F
 
     data_x_LOPA = unif_random_sample_domain(low, high, key, n)
     data_x_L1OPA = jnp.expand_dims(data_x_LOPA, axis=1)  # TODO kinda a dodgy fix
-    if config.GENERATIVE_ENV:
-        batch_key = jrandom.split(key, n)
-        data_y_LO = jax.vmap(f, in_axes=(0, None, None, None, None, 0))(data_x_L1OPA, env, None, None, batch_key)
-    else:
-        raise NotImplementedError("If not generative env then we have to output nothing, unsure how to do in Jax")
+    batch_key = jrandom.split(key, n)
+    data_y_LO = jax.vmap(f, in_axes=(0, None, None, None, 0))(data_x_L1OPA, env, None, None, batch_key)
 
-    # Plot initial data
+    # Plot initial data if traning
     if train:
         ax_obs_init, fig_obs_init = plot_fn(path=None, domain=domain)
         if ax_obs_init is not None and config.SAVE_FIGURES:
@@ -195,11 +154,24 @@ def get_initial_data(config, f, plot_fn, low, high, domain, env, n, key, train=F
             scatter(ax_obs_init, x_data, color="k", s=2)
             fig_obs_init.suptitle("Initial Observations")
             neatplot.save_figure("figures/obs_init", "png", fig=fig_obs_init)
-    return data_x_LOPA, data_y_LO
+
+    return gpjax.Dataset(data_x_LOPA, data_y_LO)
 
 
-def make_plots(plot_fn, domain, true_path, data, env, env_params, config, agent_config, exe_path_list, real_paths_mpc,
-               x_next, i):
+def make_plots(plot_fn, true_path, data, env, config, agent_config, exe_path_list, real_paths_mpc, x_next, i, gt=False):
+    _, _, domain = get_space_stats(env)
+
+    if gt:
+        ax_gt = None
+        fig_gt = None
+        for idx in range(true_path["exe_path_x"].shape[0]):  # TODO sort the dodgy plotting can we add inside the vmap?
+            plot_path = PlotTuple(x=true_path["exe_path_x"][idx], y=true_path["exe_path_y"][idx])
+            ax_gt, fig_gt = plot_fn(plot_path, ax_gt, fig_gt, domain, "samp")
+        if fig_gt and config.SAVE_FIGURES:
+            fig_gt.suptitle("Ground Truth Eval")
+            neatplot.save_figure("figures/gt", "png", fig=fig_gt)
+        return
+
     if len(data.x) == 0:
         return
     # Initialize various axes and figures
@@ -217,11 +189,11 @@ def make_plots(plot_fn, domain, true_path, data, env, env_params, config, agent_
     data = jax.tree_util.tree_map(lambda x: x[agent_config.SYS_ID_DATA:], data)
 
     # Plot init observations
-    init_x_obs = make_plot_obs(init_data.x, env, env_params, config.NORMALISE_ENV)
+    init_x_obs = make_plot_obs(init_data.x, env, config.NORMALISE_ENV)
     scatter(ax_all, init_x_obs, color="grey", s=10, alpha=0.2)
 
     # Plot observations
-    x_obs = make_plot_obs(data.x, env, env_params, config.NORMALISE_ENV)
+    x_obs = make_plot_obs(data.x, env, config.NORMALISE_ENV)
     scatter(ax_all, x_obs, color="green", s=10, alpha=0.4)
     plot(ax_obs, x_obs, "o", color="k", ms=1)
 
@@ -238,7 +210,7 @@ def make_plots(plot_fn, domain, true_path, data, env, env_params, config, agent_
         ax_postmean, fig_postmean = plot_fn(path, ax_postmean, fig_postmean, domain, "samp")
 
     # Plot x_next
-    x = make_plot_obs(x_next, env, env_params, config.NORMALISE_ENV)
+    x = make_plot_obs(x_next, env, config.NORMALISE_ENV)
     scatter(ax_all, x, facecolors="deeppink", edgecolors="k", s=120, zorder=100)
     plot(ax_obs, x, "o", mfc="deeppink", mec="k", ms=12, zorder=100)
 
@@ -263,3 +235,30 @@ def make_plots(plot_fn, domain, true_path, data, env, env_params, config, agent_
         neatplot.save_figure(f"figures/obs_{i}", "png", fig=fig_obs)
 
     plt.close()
+
+
+def make_normalised_plot_fn(norm_env, plot_fn):
+    obs_dim = norm_env.observation_space().shape[0]
+
+    # Set domain
+    low = jnp.concatenate([norm_env.unnorm_obs_space.low, jnp.expand_dims(norm_env.unnorm_action_space.low, axis=0)])
+    high = jnp.concatenate([norm_env.unnorm_obs_space.high, jnp.expand_dims(norm_env.unnorm_action_space.high, axis=0)])
+    unnorm_domain = [elt for elt in zip(low, high)]
+
+    def norm_plot_fn(path, ax=None, fig=None, domain=None, path_str="samp", env=None):
+        if path:
+            x = jnp.array(path.x)
+            norm_obs = x[..., :obs_dim]
+            action = x[..., obs_dim:]
+            unnorm_action = norm_env.unnormalise_action(action)
+            unnorm_obs = norm_env.unnormalise_obs(norm_obs)
+            unnorm_x = jnp.concatenate([unnorm_obs, unnorm_action], axis=-1)
+            try:
+                y = path.y
+                unnorm_y = norm_env.unnormalise_obs(y)
+            except AttributeError:
+                pass
+            path = PlotTuple(x=unnorm_x, y=unnorm_y)
+        return plot_fn(path, ax=ax, fig=fig, domain=unnorm_domain, path_str=path_str, env=env)
+
+    return norm_plot_fn
