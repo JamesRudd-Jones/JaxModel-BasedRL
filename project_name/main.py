@@ -1,5 +1,5 @@
 from absl import app
-from project_name.baselines_run import run_train
+from project_name.training_loop import run_train
 import wandb
 from project_name.config import get_config  # TODO dodge need to know how to fix this
 import jax
@@ -7,9 +7,8 @@ import logging
 
 
 jax.config.update("jax_enable_x64", True)
-# jax.config.update("jax_debug_nans", True)
 
-# TODO set a precedent for when we split keys, it should be at the lowest level possible before use
+# TODO what is env.params, do we need it or can we do soemthing else than leave in the env?
 
 # TODO focus on getting PETS to work
 
@@ -47,8 +46,7 @@ def main(_):
     #     mode=config.WANDB
     # )
 
-    config.DEVICE = jax.lib.xla_bridge.get_backend().platform
-    # # config.DEVICE = jax.extend.backend.get_backend()
+    config.DEVICE = jax.extend.backend.get_backend().platform
     logging.info(f"Current JAX Device: {config.DEVICE}")
 
     with jax.disable_jit(disable=config.DISABLE_JIT):

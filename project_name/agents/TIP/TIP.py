@@ -20,19 +20,18 @@ class TIPAgent(MPCAgent):
         super().__init__(env, env_params, config, key)
         self.agent_config = get_TIP_config()
 
-        # TODO add some import from folder check thingo
         self.dynamics_model = dynamics_models.MOGP(env, env_params, config, self.agent_config, key)
 
     def make_postmean_func_const_key(self):
         def _postmean_fn(x, unused1, unused2, train_state, train_data, key):
             mu = self.dynamics_model.get_post_mu_cov_samples(x, train_state, train_data, key, full_cov=False)
-            return jnp.squeeze(mu, axis=0)
+            return mu.squeeze(axis=0)
         return _postmean_fn
 
     @partial(jax.jit, static_argnums=(0, 3))
     def _optimise(self, train_state, train_data, f, exe_path_BSOPA, x_test, key):
         curr_obs_O = x_test[:self.obs_dim]
-        mean = jnp.zeros((self.agent_config.PLANNING_HORIZON, self.action_dim))  # TODO this may not be zero if there is alreayd an action sequence, should check this
+        mean = jnp.zeros((self.agent_config.PLANNING_HORIZON, self.action_dim))  # TODO this may not be zero if there is already an action sequence, should check this
         init_var_divisor = 4
         var = jnp.ones_like(mean) * ((self.env.action_space().high - self.env.action_space().low) / init_var_divisor) ** 2
 
@@ -81,7 +80,8 @@ class TIPAgent(MPCAgent):
         key, _key = jrandom.split(key)
         init_samples = jnp.zeros((self.agent_config.N_ELITES, self.agent_config.PLANNING_HORIZON, 1))
         init_returns = jnp.ones((self.agent_config.N_ELITES,)) * -jnp.inf
-        _, (tree_samples, tree_returns) = jax.lax.scan(_iter_iCEM2, (mean, var, init_samples, init_returns, _key), None, self.agent_config.OPTIMISATION_ITERS)
+        _, (tree_samples, tree_returns) = jax.lax.scan(_iter_iCEM2, (mean, var, init_samples, init_returns, _key),
+                                                       None, self.agent_config.OPTIMISATION_ITERS)
 
         flattened_samples = tree_samples.reshape(tree_samples.shape[0] * tree_samples.shape[1], -1)
         flattened_returns = tree_returns.reshape(tree_returns.shape[0] * tree_returns.shape[1], -1)

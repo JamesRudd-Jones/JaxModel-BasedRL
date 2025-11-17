@@ -10,17 +10,13 @@ from functools import partial
 import optax
 from project_name.dynamics_models import DynamicsModelBase
 from jaxtyping import Float, install_import_hook
+import logging
 
 with install_import_hook("gpjax", "beartype.beartype"):
-    import logging
-    logging.getLogger('gpjax').setLevel(logging.WARNING)
     import gpjax
 
-from gpjax.typing import (
-    Array,
-    ScalarFloat,
-)
-from cola.ops.operators import I_like
+from gpjax.typing import Array, ScalarFloat
+# from cola.ops.operators import I_like
 from flax import nnx
 import tensorflow_probability.substrates.jax as tfp
 
@@ -33,7 +29,6 @@ class SeparateIndependent(gpjax.kernels.stationary.StationaryKernel):
 
     def __call__(self, X: Float[Array, "1 D"], Xp: Float[Array, "1 D"]) -> Float[Array, "1"]:
         # standard RBF-SE kernel is x and x' are on the same output, otherwise returns 0
-
         z = jnp.array(X[-1], dtype=int)
         zp = jnp.array(Xp[-1], dtype=int)
 
@@ -45,20 +40,21 @@ class SeparateIndependent(gpjax.kernels.stationary.StationaryKernel):
 
     @property
     def spectral_density(self) -> tfp.distributions.Normal:
+        # TODO is this correct?
         return tfp.distributions.Normal(0.0, 1.0)
 
 
 class MOSVGP(DynamicsModelBase):
-    def __init__(self, env, env_params, config, agent_config, key):
-        super().__init__(env, env_params, config, agent_config, key)
+    def __init__(self, env, config, agent_config, key):
+        super().__init__(env, config, agent_config, key)
 
         key, _key = jrandom.split(key)
         samples = jrandom.uniform(key, shape=(self.agent_config.NUM_INDUCING_POINTS, self.obs_dim + self.action_dim),
                                   minval=0.0, maxval=1.0)
-        low = jnp.concatenate([env.observation_space(env_params).low,
-                               jnp.expand_dims(jnp.array(env.action_space(env_params).low), axis=0)])
-        high = jnp.concatenate([env.observation_space(env_params).high,
-                                jnp.expand_dims(jnp.array(env.action_space(env_params).high), axis=0)])
+        low = jnp.concatenate([env.observation_space().low,
+                               jnp.expand_dims(jnp.array(env.action_space().low), axis=0)])
+        high = jnp.concatenate([env.observation_space().high,
+                                jnp.expand_dims(jnp.array(env.action_space().high), axis=0)])
         # TODO this is general maybe can put somewhere else
         self.og_z = low + (high - low) * samples
         self.z = self._adjust_dataset(gpjax.Dataset(self.og_z, jnp.zeros((self.og_z.shape[0], self.obs_dim))))
@@ -77,7 +73,8 @@ class MOSVGP(DynamicsModelBase):
         mean = gpjax.mean_functions.Constant(jnp.array((0.07455202985890419)))
         prior = gpjax.gps.Prior(mean_function=mean, kernel=kernel)
         self.variational_posterior_builder = lambda n: gpjax.variational_families.VariationalGaussian(posterior=prior * gpjax.likelihoods.Gaussian(num_datapoints=n,
-                                                                       obs_stddev=gpjax.parameters.PositiveReal(jnp.array(jnp.sqrt(0.01)))), inducing_inputs=self.z.X)
+                                                                       obs_stddev=jnp.array(jnp.sqrt(0.01))),
+                                                                                                      inducing_inputs=self.z.X)
 
 
     def create_train_state(self, init_data, key):
@@ -90,19 +87,13 @@ class MOSVGP(DynamicsModelBase):
     @staticmethod
     def _adjust_dataset(dataset):
         num_points = dataset.X.shape[0]
-        in_dim = dataset.X.shape[1]
         out_dim = dataset.y.shape[1]
-        # print(f"Num Points: {num_points}; Num Inputs: {in_dim}; Num Outputs: {out_dim}")
 
         label = jnp.tile(jnp.array(jnp.linspace(0, out_dim - 1, out_dim)), num_points)
 
         new_x = jnp.hstack((jnp.repeat(dataset.X, repeats=out_dim, axis=0), jnp.expand_dims(label, axis=-1)))
 
         new_y = dataset.y.reshape(-1, 1)
-
-        # assert new_x.shape == (num_points * out_dim, in_dim + 1), "Output X is the wrong shape"
-        # assert new_y.shape == (num_points * out_dim, 1), "Output Y is the wrong shape"
-        # TODO add in assertion
 
         return gpjax.Dataset(new_x, new_y)
 

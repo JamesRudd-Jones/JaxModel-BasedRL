@@ -16,6 +16,7 @@ from gymnax.environments import environment
 from flax import struct
 import matplotlib.pyplot as plt
 
+
 class MemoryState(NamedTuple):
     hstate: jnp.ndarray
     extras: Mapping[str, jnp.ndarray]
@@ -106,8 +107,7 @@ def import_class_from_folder(folder_name):
     potential_path = os.path.join(os.curdir, "project_name", "agents",
                                   folder_name)  # TODO the project_name addition ain't great
 
-    if os.path.isdir(potential_path) and os.path.exists(
-            os.path.join(potential_path, f"{folder_name}.py")):
+    if os.path.isdir(potential_path) and os.path.exists(os.path.join(potential_path, f"{folder_name}.py")):
         # Use importlib to dynamically import the module
         module_spec = importlib.util.spec_from_file_location(folder_name,
                                                              os.path.join(potential_path, f"{folder_name}.py"))
@@ -159,14 +159,14 @@ def update_obs_fn_teleport(x, y, env, env_params):
     return wrapped_output
 
 
-def get_start_obs(env, env_params, key):  # TODO some if statement if have some fixed start point
+def get_start_obs(env, key):  # TODO some if statement if have some fixed start point
     key, _key = jrandom.split(key)
-    obs, env_state = env.reset(_key, env_params)
+    obs, env_state = env.reset(_key)
     logging.info(f"Start obs: {obs}")
     return obs, env_state
 
 
-def get_initial_data(config, f, plot_fn, low, high, domain, env, env_params, n, key, train=False):
+def get_initial_data(config, f, plot_fn, low, high, domain, env, n, key, train=False):
     def unif_random_sample_domain(low, high, key, n=1):
         unscaled_random_sample = jrandom.uniform(key, shape=(n, low.shape[0]))
         scaled_random_sample = low + (high - low) * unscaled_random_sample
@@ -176,7 +176,7 @@ def get_initial_data(config, f, plot_fn, low, high, domain, env, env_params, n, 
     data_x_L1OPA = jnp.expand_dims(data_x_LOPA, axis=1)  # TODO kinda a dodgy fix
     if config.GENERATIVE_ENV:
         batch_key = jrandom.split(key, n)
-        data_y_LO = jax.vmap(f, in_axes=(0, None, None, None, None, 0))(data_x_L1OPA, env, env_params, None, None, batch_key)
+        data_y_LO = jax.vmap(f, in_axes=(0, None, None, None, None, 0))(data_x_L1OPA, env, None, None, batch_key)
     else:
         raise NotImplementedError("If not generative env then we have to output nothing, unsure how to do in Jax")
 
@@ -184,7 +184,7 @@ def get_initial_data(config, f, plot_fn, low, high, domain, env, env_params, n, 
     if train:
         ax_obs_init, fig_obs_init = plot_fn(path=None, domain=domain)
         if ax_obs_init is not None and config.SAVE_FIGURES:
-            obs_dim = env.observation_space(env_params).low.size
+            obs_dim = env.observation_space().low.size
             x_data = data_x_LOPA
             if config.NORMALISE_ENV:
                 norm_obs = x_data[..., :obs_dim]

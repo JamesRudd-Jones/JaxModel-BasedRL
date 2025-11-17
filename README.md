@@ -50,7 +50,7 @@ However, there are some current work-arounds we make as of now, but will have so
 Go on your '.venv' and to 'site-packages/plum' and adjust 'function.py:478' to log to debug not info.
 For some reason GPJax has extensive logging and we are unsure how else to turn this off. 
 
-Remove all checks from 'parameters.py:169' onwards.
+Remove all checks from 'parameters.py:165' onwards.
 It currently causes errors but is something that must be sorted in future due to error checking.
 
 Further in GPJax 'dataset.py:92' and 'dataset.py:115' we have switched off '_check_shape' and '_check_precision' respectively as this prevented passing the GPJax Dataset through a vmap even if it wasn't being "vmapped".

@@ -1,14 +1,13 @@
 from abc import abstractmethod
 import jax
 import beartype.typing as tp
-from cola.annotations import PSD
-from cola.linalg.algorithm_base import Algorithm
-from cola.linalg.decompositions.decompositions import Cholesky
-from cola.linalg.inverse.inv import solve
-from cola.ops.operators import I_like
+# from cola.annotations import PSD
+# from cola.linalg.algorithm_base import Algorithm
+# from cola.linalg.decompositions.decompositions import Cholesky
+# from cola.linalg.inverse.inv import solve
+# from cola.ops.operators import I_like
 from flax import nnx
 import jax.numpy as jnp
-import jax.random as jr
 from jaxtyping import (
     Float,
     Num,
@@ -23,12 +22,11 @@ from gpjax.likelihoods import (
     Gaussian,
     NonGaussian,
 )
-from gpjax.lower_cholesky import lower_cholesky
+# from gpjax.lower_cholesky import lower_cholesky
 from gpjax.mean_functions import AbstractMeanFunction
 from gpjax.parameters import (
     Parameter,
     Real,
-    Static,
 )
 from gpjax.typing import (
     Array,
@@ -37,13 +35,11 @@ from gpjax.typing import (
 )
 from gpjax.gps import Prior
 import beartype.typing as tp
-import jax.random as jr
 from jaxtyping import Float
 
 from gpjax.kernels.base import AbstractKernel
 from gpjax.kernels.computations import BasisFunctionComputation
 from gpjax.kernels.stationary.base import StationaryKernel
-from gpjax.parameters import Static
 from gpjax.typing import (
     Array,
     KeyArray,
@@ -58,86 +54,86 @@ NGL = tp.TypeVar("NGL", bound=NonGaussian)
 GL = tp.TypeVar("GL", bound=Gaussian)
 
 
-def adj_sample_approx_old(posterior,
-        num_samples: int,
-        train_data: Dataset,
-        key: KeyArray,
-        num_features: int | None = 100,
-        solver_algorithm: tp.Optional[Algorithm] = Cholesky(),
-):
-    r"""Draw approximate samples from the Gaussian process posterior.
-
-    Build an approximate sample from the Gaussian process posterior. This method
-    provides a function that returns the evaluations of a sample across any given
-    inputs.
-
-    Unlike when building approximate samples from a Gaussian process prior, decompositions
-    based on Fourier features alone rarely give accurate samples. Therefore, we must also
-    include an additional set of features (known as canonical features) to better model the
-    transition from Gaussian process prior to Gaussian process posterior. For more details
-    see [Wilson et. al. (2020)](https://arxiv.org/abs/2002.09309).
-
-    In particular, we approximate the Gaussian processes' posterior as the finite
-    feature approximation
-    $\hat{f}(x) = \sum_{i=1}^m \phi_i(x)\theta_i + \sum{j=1}^N v_jk(.,x_j)$
-    where $\phi_i$ are m features sampled from the Fourier feature decomposition of
-    the model's kernel and $k(., x_j)$ are N canonical features. The Fourier
-    weights $\theta_i$ are samples from a unit Gaussian. See
-    [Wilson et. al. (2020)](https://arxiv.org/abs/2002.09309) for expressions
-    for the canonical weights $v_j$.
-
-    A key property of such functional samples is that the same sample draw is
-    evaluated for all queries. Consistency is a property that is prohibitively costly
-    to ensure when sampling exactly from the GP prior, as the cost of exact sampling
-    scales cubically with the size of the sample. In contrast, finite feature representations
-    can be evaluated with constant cost regardless of the required number of queries.
-
-    Args:
-        num_samples (int): The desired number of samples.
-        key (KeyArray): The random seed used for the sample(s).
-        num_features (int): The number of features used when approximating the
-            kernel.
-        solver_algorithm (Optional[Algorithm], optional): The algorithm to use for the solves of
-            the inverse of the covariance matrix. See the
-            [CoLA documentation](https://cola.readthedocs.io/en/latest/package/cola.linalg.html#algorithms)
-            for which solver to pick. For PSD matrices, CoLA currently recommends Cholesky() for small
-            matrices and CG() for larger matrices. Select Auto() to let CoLA decide. Defaults to Cholesky().
-
-    Returns:
-        FunctionalSample: A function representing an approximate sample from the Gaussian
-        process prior.
-    """
-    if (not isinstance(num_samples, int)) or num_samples <= 0:
-        raise ValueError("num_samples must be a positive integer")
-
-    # sample fourier features
-    fourier_feature_fn = _build_fourier_features_fn(posterior.prior, num_features, key)
-
-    # sample fourier weights
-    # fourier_weights = _build_fourier_weights(train_data.y.shape[0], num_samples, num_features, key)
-    fourier_weights = jr.normal(key, [num_samples, 2 * num_features])  # [B, L]
-
-    # sample weights v for canonical features
-    # v = Σ⁻¹ (y + ε - ɸ⍵) for  Σ = Kxx + Io² and ε ᯈ N(0, o²)
-    obs_var = posterior.likelihood.obs_stddev.value ** 2
-    Kxx = posterior.prior.kernel.gram(train_data.X)  # [N, N]
-    Sigma = Kxx + I_like(Kxx) * (obs_var + posterior.jitter)  # [N, N]
-    eps = jnp.sqrt(obs_var) * jr.normal(key, [train_data.n, num_samples]) # [N, B]
-    y = train_data.y - posterior.prior.mean_function(train_data.X)  # account for mean
-    Phi = fourier_feature_fn(train_data.X)
-    canonical_weights = solve(Sigma, y + eps - jnp.inner(Phi, fourier_weights), solver_algorithm)  # [N, B]
-
-    def sample_fn(test_inputs: Float[Array, "n D"]) -> Float[Array, "n B"]:
-        fourier_features = fourier_feature_fn(test_inputs)  # [n, L]
-        weight_space_contribution = jnp.inner(fourier_features, fourier_weights)  # [n, B]
-        canonical_features = posterior.prior.kernel.cross_covariance(test_inputs, train_data.X)  # [n, N]
-        function_space_contribution = jnp.matmul(canonical_features, canonical_weights)
-
-        return (posterior.prior.mean_function(test_inputs)
-                + weight_space_contribution
-                + function_space_contribution)
-
-    return sample_fn
+# def adj_sample_approx_old(posterior,
+#         num_samples: int,
+#         train_data: Dataset,
+#         key: KeyArray,
+#         num_features: int | None = 100,
+#         solver_algorithm: tp.Optional[Algorithm] = Cholesky(),
+# ):
+#     r"""Draw approximate samples from the Gaussian process posterior.
+#
+#     Build an approximate sample from the Gaussian process posterior. This method
+#     provides a function that returns the evaluations of a sample across any given
+#     inputs.
+#
+#     Unlike when building approximate samples from a Gaussian process prior, decompositions
+#     based on Fourier features alone rarely give accurate samples. Therefore, we must also
+#     include an additional set of features (known as canonical features) to better model the
+#     transition from Gaussian process prior to Gaussian process posterior. For more details
+#     see [Wilson et. al. (2020)](https://arxiv.org/abs/2002.09309).
+#
+#     In particular, we approximate the Gaussian processes' posterior as the finite
+#     feature approximation
+#     $\hat{f}(x) = \sum_{i=1}^m \phi_i(x)\theta_i + \sum{j=1}^N v_jk(.,x_j)$
+#     where $\phi_i$ are m features sampled from the Fourier feature decomposition of
+#     the model's kernel and $k(., x_j)$ are N canonical features. The Fourier
+#     weights $\theta_i$ are samples from a unit Gaussian. See
+#     [Wilson et. al. (2020)](https://arxiv.org/abs/2002.09309) for expressions
+#     for the canonical weights $v_j$.
+#
+#     A key property of such functional samples is that the same sample draw is
+#     evaluated for all queries. Consistency is a property that is prohibitively costly
+#     to ensure when sampling exactly from the GP prior, as the cost of exact sampling
+#     scales cubically with the size of the sample. In contrast, finite feature representations
+#     can be evaluated with constant cost regardless of the required number of queries.
+#
+#     Args:
+#         num_samples (int): The desired number of samples.
+#         key (KeyArray): The random seed used for the sample(s).
+#         num_features (int): The number of features used when approximating the
+#             kernel.
+#         solver_algorithm (Optional[Algorithm], optional): The algorithm to use for the solves of
+#             the inverse of the covariance matrix. See the
+#             [CoLA documentation](https://cola.readthedocs.io/en/latest/package/cola.linalg.html#algorithms)
+#             for which solver to pick. For PSD matrices, CoLA currently recommends Cholesky() for small
+#             matrices and CG() for larger matrices. Select Auto() to let CoLA decide. Defaults to Cholesky().
+#
+#     Returns:
+#         FunctionalSample: A function representing an approximate sample from the Gaussian
+#         process prior.
+#     """
+#     if (not isinstance(num_samples, int)) or num_samples <= 0:
+#         raise ValueError("num_samples must be a positive integer")
+#
+#     # sample fourier features
+#     fourier_feature_fn = _build_fourier_features_fn(posterior.prior, num_features, key)
+#
+#     # sample fourier weights
+#     # fourier_weights = _build_fourier_weights(train_data.y.shape[0], num_samples, num_features, key)
+#     fourier_weights = jr.normal(key, [num_samples, 2 * num_features])  # [B, L]
+#
+#     # sample weights v for canonical features
+#     # v = Σ⁻¹ (y + ε - ɸ⍵) for  Σ = Kxx + Io² and ε ᯈ N(0, o²)
+#     obs_var = posterior.likelihood.obs_stddev.value ** 2
+#     Kxx = posterior.prior.kernel.gram(train_data.X)  # [N, N]
+#     Sigma = Kxx + I_like(Kxx) * (obs_var + posterior.jitter)  # [N, N]
+#     eps = jnp.sqrt(obs_var) * jr.normal(key, [train_data.n, num_samples]) # [N, B]
+#     y = train_data.y - posterior.prior.mean_function(train_data.X)  # account for mean
+#     Phi = fourier_feature_fn(train_data.X)
+#     canonical_weights = solve(Sigma, y + eps - jnp.inner(Phi, fourier_weights), solver_algorithm)  # [N, B]
+#
+#     def sample_fn(test_inputs: Float[Array, "n D"]) -> Float[Array, "n B"]:
+#         fourier_features = fourier_feature_fn(test_inputs)  # [n, L]
+#         weight_space_contribution = jnp.inner(fourier_features, fourier_weights)  # [n, B]
+#         canonical_features = posterior.prior.kernel.cross_covariance(test_inputs, train_data.X)  # [n, N]
+#         function_space_contribution = jnp.matmul(canonical_features, canonical_weights)
+#
+#         return (posterior.prior.mean_function(test_inputs)
+#                 + weight_space_contribution
+#                 + function_space_contribution)
+#
+#     return sample_fn
 
 def adj_sample_approx(posterior,
         num_samples: int,
@@ -196,14 +192,14 @@ def adj_sample_approx(posterior,
 
     # sample fourier weights
     # fourier_weights = _build_fourier_weights(train_data.y.shape[0], num_samples, num_features, key)
-    fourier_weights = jr.normal(key, [num_samples, 2 * num_features])  # [B, L]
+    fourier_weights = jrandom.normal(key, [num_samples, 2 * num_features])  # [B, L]
 
     # sample weights v for canonical features
     # v = Σ⁻¹ (y + ε - ɸ⍵) for  Σ = Kxx + Io² and ε ᯈ N(0, o²)
     obs_var = posterior.likelihood.obs_stddev.value ** 2
     Kxx = posterior.prior.kernel.gram(train_data.X)  # [N, N]
     Sigma = Kxx + I_like(Kxx) * (obs_var + posterior.jitter)  # [N, N]
-    eps = jnp.sqrt(obs_var) * jr.normal(key, [train_data.n, num_samples]) # [N, B]
+    eps = jnp.sqrt(obs_var) * jrandom.normal(key, [train_data.n, num_samples]) # [N, B]
     y = train_data.y - posterior.prior.mean_function(train_data.X)  # account for mean
     Phi = fourier_feature_fn(train_data.X)
     canonical_weights = solve(Sigma, y + eps - jnp.inner(Phi, fourier_weights), solver_algorithm)  # [N, B]
@@ -256,8 +252,8 @@ def _build_fourier_features_fn(
     return eval_fourier_features
 
 def _build_fourier_weights(dataset_shape, num_samples, num_features, key):
-    weights = jr.normal(key, [num_samples * 2, 2 * num_features])
-    return jnp.repeat(weights, dataset_shape // 2, axis=0)  # TODO generlise both to dims more than 2
+    weights = jrandom.normal(key, [num_samples * 2, 2 * num_features])
+    return jnp.repeat(weights, dataset_shape // 2, axis=0)  # TODO generalise both to dims more than 2
 
 
 class MO_RFF(AbstractKernel):
@@ -284,7 +280,7 @@ class MO_RFF(AbstractKernel):
                  num_basis_fns: int = 50,
                  frequencies: tp.Union[Float[Array, "M D"], None] = None,
                  compute_engine: BasisFunctionComputation = BasisFunctionComputation(),
-                 key: KeyArray = jr.PRNGKey(0)):
+                 key: KeyArray = jrandom.key(0)):
         r"""Initialise the RFF kernel.
 
         Args:
@@ -313,16 +309,8 @@ class MO_RFF(AbstractKernel):
                     "Please specify the n_dims argument for the base kernel."
                 )
             key0, key1 = jrandom.split(key)
-            self.frequencies0 = Static(
-                self.kernel0.spectral_density.sample(
-                    seed=key0, sample_shape=(self.num_basis_fns, n_dims)
-                )
-            )
-            self.frequencies1 = Static(
-                self.kernel1.spectral_density.sample(
-                    seed=key1, sample_shape=(self.num_basis_fns, n_dims)
-                )
-            )
+            self.frequencies0 = self.kernel0.spectral_density.sample(seed=key0, sample_shape=(self.num_basis_fns, n_dims))
+            self.frequencies1 = self.kernel1.spectral_density.sample(seed=key1, sample_shape=(self.num_basis_fns, n_dims))
         self.name = f"{self.kernel0.name} (RFF)"
 
     def __call__(self, x: Float[Array, "D 1"], y: Float[Array, "D 1"]) -> None:

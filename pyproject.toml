@@ -12,12 +12,26 @@ dependencies = [
     "matplotlib>=3.10.1",
     "neatplot>=0.1.0",
     "gymnax>=0.0.8",
-    "jax[cuda12_pip]==0.6.0",
     "jupyter>=1.1.1",
     "notebook>=7.3.3",
-    "gpjax>=0.11.0",
     "tensorflow-probability>=0.25.0",
+    "jax[cuda]==0.6.0",
+    "gpjax>=0.12.2",
+    "bifurcagym @ git+ssh://git@github.com/JamesRudd-Jones/BifurcaGym.git@main",
 ]
+#dependencies = [
+#    "absl-py>=2.1.0",
+#    "ml-collections>=1.0.0",
+#    "wandb>=0.19.8",
+#    "matplotlib>=3.10.1",
+#    "neatplot>=0.1.0",
+#    "gymnax>=0.0.8",
+#    "jupyter>=1.1.1",
+#    "notebook>=7.3.3",
+#    "gpjax>=0.11.0",
+#    "tensorflow-probability>=0.25.0",
+#    "jax[cuda]==0.6.0",
+#]
 
 #dependencies = [
 #    "absl-py>=2.1.0",

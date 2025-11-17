@@ -1,26 +1,16 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-import jax.scipy as jsp
-from flax import struct
-from flax.training import train_state
-import optax
-from typing import List, Tuple, Dict, Optional, NamedTuple, Any
 from functools import partial
 import optax
 from project_name.dynamics_models import DynamicsModelBase
 from jaxtyping import Float, install_import_hook
+import logging
 
 with install_import_hook("gpjax", "beartype.beartype"):
-    import logging
-    logging.getLogger('gpjax').setLevel(logging.WARNING)
     import gpjax
 
-from gpjax.typing import (
-    Array,
-    ScalarFloat,
-)
-from cola.ops.operators import I_like
+from gpjax.typing import Array, ScalarFloat
 from flax import nnx
 import tensorflow_probability.substrates.jax as tfp
 
@@ -33,9 +23,8 @@ class SeparateIndependent(gpjax.kernels.stationary.StationaryKernel):
 
     def __call__(self, X: Float[Array, "1 D"], Xp: Float[Array, "1 D"]) -> Float[Array, "1"]:
         # standard RBF-SE kernel is x and x' are on the same output, otherwise returns 0
-
-        z = jnp.array(X[-1], dtype=int)
-        zp = jnp.array(Xp[-1], dtype=int)
+        z = jnp.array(X[-1], dtype=jnp.int_)
+        zp = jnp.array(Xp[-1], dtype=jnp.int_)
 
         # achieve the correct value via 'switches' that are either 1 or 0
         k0_switch = ((z + 1) % 2) * ((zp + 1) % 2)
@@ -45,12 +34,13 @@ class SeparateIndependent(gpjax.kernels.stationary.StationaryKernel):
 
     @property
     def spectral_density(self) -> tfp.distributions.Normal:
+        # TODO is the correct spectral density?
         return tfp.distributions.Normal(0.0, 1.0)
 
 
 class MOGP(DynamicsModelBase):
-    def __init__(self, env, env_params, config, agent_config, key):
-        super().__init__(env, env_params, config, agent_config, key)
+    def __init__(self, env, config, agent_config, key):
+        super().__init__(env, config, agent_config, key)
 
         kernel = SeparateIndependent(lengthscale1 = jnp.array((2.81622296,   9.64035469, 142.60660018)),
                                      lengthscale2 = jnp.array((0.92813981, 280.24169475,  14.85778016)),
@@ -61,7 +51,7 @@ class MOGP(DynamicsModelBase):
         mean = gpjax.mean_functions.Constant(jnp.array((0.07455202985890419)))
         self.prior = gpjax.gps.Prior(mean_function=mean, kernel=kernel)
         self.likelihood_builder = lambda n: gpjax.likelihoods.Gaussian(num_datapoints=n,
-                                                                       obs_stddev=gpjax.parameters.PositiveReal(jnp.array(0.005988507226896687)))
+                                                                       obs_stddev=jnp.array(0.005988507226896687))
 
     def create_train_state(self, init_data, key):
         data = self._adjust_dataset(init_data)
@@ -74,19 +64,13 @@ class MOGP(DynamicsModelBase):
     @partial(jax.jit, static_argnums=(0,))
     def _adjust_dataset(self, dataset):
         num_points = dataset.X.shape[0]
-        # in_dim = dataset.X.shape[1]
         out_dim = dataset.y.shape[1]
-        # print(f"Num Points: {num_points}; Num Inputs: {in_dim}; Num Outputs: {out_dim}")
 
         label = jnp.tile(jnp.array(jnp.linspace(0, out_dim - 1, out_dim)), num_points)
 
         new_x = jnp.hstack((jnp.repeat(dataset.X, repeats=out_dim, axis=0), jnp.expand_dims(label, axis=-1)))
 
         new_y = dataset.y.reshape(-1, 1)
-
-        # assert new_x.shape == (num_points * out_dim, in_dim + 1), "Output X is the wrong shape"
-        # assert new_y.shape == (num_points * out_dim, 1), "Output Y is the wrong shape"
-        # TODO can we reinstantiate this yet keep the jit?
 
         return gpjax.Dataset(new_x, new_y)
 
